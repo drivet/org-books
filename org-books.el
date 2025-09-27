@@ -95,7 +95,8 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
          (title (org-books--clean-str (enlive-text (enlive-get-element-by-id page-node "productTitle"))))
          (author (s-join ", " (org-books-get-details-amazon-authors page-node))))
     (if (not (string-equal title ""))
-        (list title author `(("AMAZON" . ,url))))))
+        (list title author `()
+              (org-books-create-amazon-content url)))))
 
 (defun org-books-get-details-goodreads (url)
   "Get book details from Goodreads URL."
@@ -103,7 +104,8 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
          (title (org-books--clean-str (enlive-text (enlive-query page-node [.Text__title1]))))
          (author (org-books--clean-str (s-join ", " (mapcar #'enlive-text (enlive-query-all page-node [.ContributorLink__name] ))))))
     (if (not (string-equal title ""))
-        (list title author `(("GOODREADS" . ,url))))))
+        (list title author `()
+             (org-books-create-goodreads-content url)))))
 
 (defun org-books-get-url-from-isbn (isbn)
   "Make and return openlibrary url from ISBN."
@@ -116,6 +118,12 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
   (format "#+BEGIN_aside\n#+ATTR_HTML: :loading lazy\n[[%s]]\n\n[[%s][Open Library]] \\\\\n[[%s][Open Library Data]]\n#+END_aside"
           (create-isbn-cover-image-url isbn) pageurl dataurl))
 
+(defun org-books-create-amazon-content (url)
+  (format "[[%s][Amazon]]" url))
+
+(defun org-books-create-goodreads-content (url)
+  (format "[[%s][Goodreads]]" url))
+
 (defun org-books-get-details-isbn (url)
   "Get book details from openlibrary ISBN response from URL."
   (let* ((json-object-type 'hash-table)
@@ -127,7 +135,7 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
          (title (gethash "title" data))
          (author (gethash "name" (car (gethash "authors" data))))
          (pageurl (gethash "url" data))
-         (rawisbn (substring isbn 5))  )
+         (rawisbn (substring isbn 5)))
     (list title author `(("ISBN" . ,rawisbn))
           (org-books-create-isbn-content rawisbn url pageurl))))
 
@@ -241,6 +249,18 @@ cursor to add log entry."
   "Add book from ISBN."
   (interactive "sISBN: ")
   (org-books-add-url (org-books-get-url-from-isbn isbn)))
+
+(defun org-books-add-olb (url)
+  (interactive "sUrl:")
+  (let* ((match-index (string-match "\\(https://openlibrary\\.org/books/[[:alnum:]]+\\)/" url))
+         (m (match-string 1 url))
+         (jsonurl (format "%s.json" m))
+         (json-object-type 'hash-table)
+         (json-array-type 'list)
+         (json-key-type 'string)
+         (json (org-books--get-json jsonurl))
+         (isbn (or (car (gethash "isbn_13" json)) (car (gethash "isbn_10" json)))))
+    (org-books-add-isbn isbn)))
 
 (defun org-books-format (level title author &optional props)
   "Return details as an org headline entry.
