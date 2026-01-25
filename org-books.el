@@ -96,7 +96,7 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
          (author (s-join ", " (org-books-get-details-amazon-authors page-node))))
     (if (not (string-equal title ""))
         (list title author `()
-              (org-books-create-amazon-content url)))))
+              (org-books-create-amazon-content url) url))))
 
 (defun org-books-get-details-goodreads (url)
   "Get book details from Goodreads URL."
@@ -105,7 +105,7 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
          (author (org-books--clean-str (s-join ", " (mapcar #'enlive-text (enlive-query-all page-node [.ContributorLink__name] ))))))
     (if (not (string-equal title ""))
         (list title author `()
-             (org-books-create-goodreads-content url)))))
+             (org-books-create-goodreads-content url) url))))
 
 (defun org-books-get-url-from-isbn (isbn)
   "Make and return openlibrary url from ISBN."
@@ -114,18 +114,17 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
 (defun create-isbn-cover-image-url (isbn)
   (format "https://covers.openlibrary.org/b/ISBN/%s-M.jpg" isbn))
 
-(defun org-books-create-isbn-content (isbn dataurl pageurl)
-  (format "#+BEGIN_aside\n#+ATTR_HTML: :loading lazy\n[[%s]]\n\n[[%s][Open Library]] \\\\\n[[%s][Open Library Data]]\n#+END_aside"
-          (create-isbn-cover-image-url isbn) pageurl dataurl))
+(defun org-books-create-isbn-content (isbn)
+  (format "#+BEGIN_aside\n#+ATTR_HTML: :loading lazy\n[[%s]]\n#+END_aside"
+          (create-isbn-cover-image-url isbn)))
 
-(defun org-books-create-amazon-content (url)
-  (format "[[%s][Amazon]]" url))
+(defun org-books-create-amazon-content (url) "")
 
-(defun org-books-create-goodreads-content (url)
-  (format "[[%s][Goodreads]]" url))
+(defun org-books-create-goodreads-content (url) "")
 
 (defun org-books-get-details-isbn (url)
   "Get book details from openlibrary ISBN response from URL."
+  (message "ISBN %s" url)
   (let* ((json-object-type 'hash-table)
          (json-array-type 'list)
          (json-key-type 'string)
@@ -137,7 +136,20 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
          (pageurl (gethash "url" data))
          (rawisbn (substring isbn 5)))
     (list title author `(("ISBN" . ,rawisbn))
-          (org-books-create-isbn-content rawisbn url pageurl))))
+          (org-books-create-isbn-content rawisbn) pageurl)))
+
+(defun org-books-get-details-olb (url)
+  "Get book details freom Open Library book URL"
+  (message "OLB")
+  (let* ((match-index (string-match "\\(https://openlibrary\\.org/books/[[:alnum:]]+\\)/" url))
+         (m (match-string 1 url))
+         (jsonurl (format "%s.json" m))
+         (json-object-type 'hash-table)
+         (json-array-type 'list)
+         (json-key-type 'string)
+         (json (org-books--get-json jsonurl))
+         (isbn (or (car (gethash "isbn_13" json)) (car (gethash "isbn_10" json)))))
+    (org-books-get-details-isbn (org-books-get-url-from-isbn isbn))))
 
 (defun org-books-get-details (url)
   "Fetch book details from given URL.
@@ -145,15 +157,21 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
 Return a list of three items: title (string), author (string) and
 an alist of properties to be applied to the org entry. If the url
 is not supported, throw an error."
-  (let ((output 'no-match)
-        (url-host-string (url-host (url-generic-parse-url url))))
-    (cl-dolist (pattern-fn-pair org-books-url-pattern-dispatches)
-      (when (s-matches? (car pattern-fn-pair) url-host-string)
-        (setq output (funcall (cdr pattern-fn-pair) url))
-        (cl-return)))
-    (if (eq output 'no-match)
-        (error (format "Url %s not understood" url))
-      output)))
+  (let* ((output 'no-match)
+          (url-struct (url-generic-parse-url url))
+          (url-host-string (url-host url-struct))
+          (url-filename-string (url-filename url-struct)))
+    (if (and (string-equal url-host-string "openlibrary.org")
+          (string-prefix-p "/books/" url-filename-string))
+        (org-books-get-details-olb url)
+      (progn
+        (cl-dolist (pattern-fn-pair org-books-url-pattern-dispatches)
+          (when (s-matches? (car pattern-fn-pair) url-host-string)
+            (setq output (funcall (cdr pattern-fn-pair) url))
+            (cl-return)))
+        (if (eq output 'no-match)
+          (error (format "Url %s not understood" url))
+          output)))))
 
 (defun org-books-create-file (file-path)
   "Write initialization stuff in a new file at FILE-PATH."
@@ -250,19 +268,7 @@ cursor to add log entry."
   (interactive "sISBN: ")
   (org-books-add-url (org-books-get-url-from-isbn isbn)))
 
-(defun org-books-add-olb (url)
-  (interactive "sUrl:")
-  (let* ((match-index (string-match "\\(https://openlibrary\\.org/books/[[:alnum:]]+\\)/" url))
-         (m (match-string 1 url))
-         (jsonurl (format "%s.json" m))
-         (json-object-type 'hash-table)
-         (json-array-type 'list)
-         (json-key-type 'string)
-         (json (org-books--get-json jsonurl))
-         (isbn (or (car (gethash "isbn_13" json)) (car (gethash "isbn_10" json)))))
-    (org-books-add-isbn isbn)))
-
-(defun org-books-format (level title author &optional props)
+(defun org-books-format (level title author &optional props url)
   "Return details as an org headline entry.
 
 LEVEL specifies the headline level. TITLE goes as the main text.
@@ -270,22 +276,25 @@ AUTHOR and properties from PROPS go as org-property.  CONTENT is
 the actual content"
   (with-temp-buffer
     (org-mode)
-    (insert (make-string level ?*) " " title "\n")
+    (if (null url)
+      (insert (make-string level ?*) " " title "\n")
+      (let ((headline (format "[[%s][%s]]" url title)))
+        (insert (make-string level ?*) " " headline "\n")))
     (org-set-property "Author" author)
     (org-set-property "Added" (format-time-string "%Y-%02m-%02d"))
     (dolist (prop props)
       (org-set-property (car prop) (cdr prop)))
     (buffer-substring-no-properties (point-min) (point-max))))
 
-(defun org-books--insert (level title author &optional props content)
+(defun org-books--insert (level title author &optional props content url)
   "Insert book template at current position in buffer.
 
 Formatting is specified by LEVEL, TITLE, AUTHOR, PROPS and CONTENT as
 described in docstring of `org-books-format' function."
-  (insert (org-books-format level title author props))
+  (insert (org-books-format level title author props url))
   (insert "\n" content "\n"))
 
-(defun org-books--insert-at-pos (pos title author &optional props content)
+(defun org-books--insert-at-pos (pos title author &optional props content url)
   "Goto POS in current buffer, insert a new entry and save buffer.
 
 TITLE, AUTHOR, PROPS AND CONTENT are formatted using `org-books-format'."
@@ -294,7 +303,7 @@ TITLE, AUTHOR, PROPS AND CONTENT are formatted using `org-books-format'."
   (let ((level (or (org-current-level) 0)))
     (org-books-goto-place)
     (insert "\n")
-    (org-books--insert (+ level 1) title author props content)
+    (org-books--insert (+ level 1) title author props content url)
     (save-buffer)))
 
 (defun org-books-goto-place ()
@@ -319,7 +328,7 @@ specifying the position in the file."
             (helm-org--get-candidates-in-file org-books-file helm-org-headings-fontify t nil t))))
 
 ;;;###autoload
-(defun org-books-add-book (title author &optional props content)
+(defun org-books-add-book (title author &optional props content url)
   "Add a book (specified by TITLE and AUTHOR) to the `org-books-file'.
 
 Optionally apply PROPS and add CONTENT"
@@ -338,7 +347,7 @@ Optionally apply PROPS and add CONTENT"
                                  :action (lambda (pos) (org-books--insert-at-pos pos title author props content)))
                       :buffer "*helm org-books add*")
               (goto-char (point-max))
-              (org-books--insert 1 title author props content)
+              (org-books--insert 1 title author props content url)
               (save-buffer)))))
     (message "org-books-file not set")))
 
