@@ -1,16 +1,17 @@
 ;;; org-books.el --- Reading list management with Org mode and helm   -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017 Abhinav Tushar
+;; Copyright (C) 2026 Desmond Rivet
 
-;; Author: Abhinav Tushar <abhinav@lepisma.xyz>
+;; Author: Desmond Rivet <desmond.rivet@gmail.com>
 ;; Version: 0.3.0
-;; Package-Requires: ((enlive "0.0.1") (s "1.11.0") (helm "2.9.2") (helm-org "1.0") (dash "2.14.1") (org "9.3") (emacs "25"))
-;; URL: https://github.com/lepisma/org-books
+;; Package-Requires: ((enlive "0.0.1") (s "1.11.0") (dash "2.14.1") (org "9.3") (emacs "25"))
+;; URL: https://github.com/drivet/org-books
 ;; Keywords: outlines
 
 ;;; Commentary:
 
-;; org-books.el is a tool for managing reading list in an Org mode file.
+;; org-books.el is a tool for managing reading list in an Org mode file.  Forked from
+;; https://github.com/lepisma/org-books
 ;; This file is not a part of GNU Emacs.
 
 ;;; License:
