@@ -44,10 +44,10 @@
   "Org reading list management."
   :group 'org)
 
-(defcustom org-books-url-pattern-dispatches
+(defcustom org-books-url-host-pattern-dispatches
   '(("^\\(www\\.\\)?amazon\\." . org-books-get-details-amazon)
     ("^\\(www\\.\\)?goodreads\\.com" . org-books-get-details-goodreads)
-    ("openlibrary\\.org" . org-books-get-details-isbn))
+    ("openlibrary\\.org" . org-books-get-details-olb))
   "Pairs of url patterns and functions taking url and returning
 book details. Check documentation of `org-books-get-details' for
 return structure from these functions."
@@ -101,7 +101,7 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
           (create-isbn-cover-image-url isbn)))
 
 (defun org-books-get-details-isbn (url)
-  "Get book details from openlibrary ISBN response from (JSON) URL."
+  "Get book details from Open Library ISBN response from URL."
   (message "ISBN %s" url)
   (let* ((json-object-type 'hash-table)
          (json-array-type 'list)
@@ -117,7 +117,7 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
           (org-books-create-isbn-content rawisbn) pageurl)))
 
 (defun org-books-get-details-olb (url)
-  "Get book details from Open Library book URL"
+  "Get book details from Open Library book URL."
   (let* ((match-index (string-match "\\(https://openlibrary\\.org/books/[[:alnum:]]+\\)/" url))
          (m (match-string 1 url))
          (jsonurl (format "%s.json" m))
@@ -134,21 +134,15 @@ PAGE-NODE is the return value of `enlive-fetch' on the page url."
 Return a list of three items: title (string), author (string) and
 an alist of properties to be applied to the org entry.  If the url
 is not supported, throw an error."
-  (let* ((output 'no-match)
-          (url-struct (url-generic-parse-url url))
-          (url-host-string (url-host url-struct))
-          (url-filename-string (url-filename url-struct)))
-    (if (and (string-equal url-host-string "openlibrary.org")
-          (string-prefix-p "/books/" url-filename-string))
-        (org-books-get-details-olb url)
-      (progn
-        (cl-dolist (pattern-fn-pair org-books-url-pattern-dispatches)
-          (when (s-matches? (car pattern-fn-pair) url-host-string)
-            (setq output (funcall (cdr pattern-fn-pair) url))
-            (cl-return)))
-        (if (eq output 'no-match)
-          (error (format "Url %s not understood" url))
-          output)))))
+  (let ((output 'no-match)
+        (url-host-string (url-host (url-generic-parse-url url))))
+    (cl-dolist (pattern-fn-pair org-books-url-host-pattern-dispatches)
+      (when (s-matches? (car pattern-fn-pair) url-host-string)
+        (setq output (funcall (cdr pattern-fn-pair) url))
+        (cl-return)))
+    (if (eq output 'no-match)
+        (error (format "Url %s not understood" url))
+      output)))
 
 (defun org-books-format (title author &optional props content url)
   "Return formatted details as an org headline entry.
@@ -189,7 +183,10 @@ described in docstring of `org-books-format' function."
 (defun org-books-add-isbn (isbn)
   "Add book from ISBN."
   (interactive "sISBN: ")
-  (org-books-add-url (org-books-get-url-from-isbn isbn)))
+  (let ((details (org-books-get-details-isbn (org-books-get-url-from-isbn isbn))))
+    (if (null details)
+        (message "Error in fetching url. Please retry.")
+      (apply #'org-books--insert details))))
 
 ;;;###autoload
 (defun org-books-add-url (url)
