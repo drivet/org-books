@@ -174,6 +174,15 @@ described in docstring of `org-books-format' function."
   (insert (org-books-format title author props content url)))
 
 ;;;###autoload
+(defun org-books-add-url (url)
+  "Add book from web URL."
+  (interactive "sUrl: ")
+  (let ((details (org-books-get-details url)))
+    (if (null details)
+        (message "Error in fetching url. Please retry.")
+      (apply #'org-books--insert details))))
+
+;;;###autoload
 (defun org-books-cliplink ()
   "Clip link from clipboard."
   (interactive)
@@ -181,19 +190,20 @@ described in docstring of `org-books-format' function."
     (org-books-add-url url)))
 
 ;;;###autoload
+(defun org-books-cliplink-capture ()
+  "Clip link from clipboard."
+  (interactive)
+  (let* ((url (substring-no-properties (current-kill 0)))
+					(details (org-books-get-details url)))
+     (if (null details)
+        (message "Error in fetching url. Please retry.")
+       (apply #'org-books-format details))))
+
+;;;###autoload
 (defun org-books-add-isbn (isbn)
   "Add book from ISBN."
   (interactive "sISBN: ")
   (let ((details (org-books-get-details-isbn (org-books-get-url-from-isbn isbn))))
-    (if (null details)
-        (message "Error in fetching url. Please retry.")
-      (apply #'org-books--insert details))))
-
-;;;###autoload
-(defun org-books-add-url (url)
-  "Add book from web URL."
-  (interactive "sUrl: ")
-  (let ((details (org-books-get-details url)))
     (if (null details)
         (message "Error in fetching url. Please retry.")
       (apply #'org-books--insert details))))
